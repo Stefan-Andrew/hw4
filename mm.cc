@@ -9,6 +9,8 @@
 #define K_ 4096
 #define M_ 4096
 
+#define MIN(a,b) ( ( a < b) ? a : b )
+
 typedef double dtype;
 
 void verify(dtype *C, dtype *C_ans, int N, int M)
@@ -21,6 +23,7 @@ void verify(dtype *C, dtype *C_ans, int N, int M)
   if(cnt != 0) printf("ERROR\n"); else printf("SUCCESS\n");
 }
 
+// naive
 void mm_serial (dtype *C, dtype *A, dtype *B, int N, int K, int M)
 {
   int i, j, k;
@@ -33,11 +36,26 @@ void mm_serial (dtype *C, dtype *A, dtype *B, int N, int K, int M)
   }
 }
 
+// cache-blocked matrix-matrix multiply
 void mm_cb (dtype *C, dtype *A, dtype *B, int N, int K, int M)
 {
-  /* =======================================================+ */
-  /* Implement your own cache-blocked matrix-matrix multiply  */
-  /* =======================================================+ */
+	int b = 256;	// block size
+	int i, j, k;
+	int j_inner, k_inner;
+	
+	for(int i = 0; i < N; i++) {
+		for(int j = 0; j < M; j += b) {
+			for(int k = 0; k < K; k += b) {
+
+				// iterate through the blocks
+				for (j_inner = j; j_inner < MIN(j + b, M); j_inner++) {
+					for (k_inner = k; k_inner < MIN(k + b, K); k_inner++) {
+						C[i * M + j_inner] += A[i * K + k_inner] * B[k_inner * M + j_inner];
+					}
+				}
+			}
+		}
+	}
 }
 
 void mm_sv (dtype *C, dtype *A, dtype *B, int N, int K, int M)
