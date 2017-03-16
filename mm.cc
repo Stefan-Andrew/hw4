@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <assert.h>
+#include <x86intrin.h>
 
 #include "timer.c"
 
@@ -58,11 +59,43 @@ void mm_cb (dtype *C, dtype *A, dtype *B, int N, int K, int M)
 	}
 }
 
+// SIMD-vectorized matrix-matrix multiply
 void mm_sv (dtype *C, dtype *A, dtype *B, int N, int K, int M)
 {
-  /* =======================================================+ */
-  /* Implement your own SIMD-vectorized matrix-matrix multiply  */
-  /* =======================================================+ */
+
+	int b = 256;	// block size
+	int i, j, k;
+	int j_inner, k_inner;
+	
+	for(int i = 0; i < N; i++) {
+		for(int j = 0; j < M; j += b) {
+			for(int k = 0; k < K; k += b) {
+
+				__m128d Avec, Bvec, Cvec, mult_vec; 
+
+				// iterate through the blocks
+				for (j_inner = j; j_inner < MIN(j + b, M); j_inner++) {
+					for (k_inner = k; k_inner < MIN(k + b, K); k_inner += 2) {
+
+						// have this if statement if to make sure that it only does SIMD if it can do so without accessing outside the array
+						// HOWEVER, this did not work
+						if ((i * K + k_inner) < (N*K)-1 && (k_inner * M + j_inner) < (K*M)-1) {
+							Avec = _mm_load_pd(A + (i * K + k_inner));
+							Bvec = _mm_load_pd(B + (k_inner * M + j_inner));
+							Cvec = _mm_mul_pd(Avec,Bvec);
+
+							double c[2];
+							_mm_store_pd(c, Cvec);
+							C[i * M + j_inner] += c[0] + c[1];
+						} 
+						else {
+							C[i * M + j_inner] += A[i * K + k_inner] * B[k_inner * M + j_inner];
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 int main(int argc, char** argv)
