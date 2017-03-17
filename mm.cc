@@ -9,10 +9,21 @@
 #define N_ 4096
 #define K_ 4096
 #define M_ 4096
+#define BLOCK_SIZE 256
 
 #define MIN(a,b) ( ( a < b) ? a : b )
 
 typedef double dtype;
+
+void matTran(dtype *B, int K, int M){
+	dtype BT[K*M];
+	for(int i = 0; i < K; i++) {
+		for(int j = 0; j < M; j++) {
+			BT[j * K + i] = B[i * M + j];
+		}
+	}
+	memcpy(B,BT,K * M * sizeof(dtype));
+}
 
 void verify(dtype *C, dtype *C_ans, int N, int M)
 {
@@ -40,17 +51,13 @@ void mm_serial (dtype *C, dtype *A, dtype *B, int N, int K, int M)
 // cache-blocked matrix-matrix multiply
 void mm_cb (dtype *C, dtype *A, dtype *B, int N, int K, int M)
 {
-	int b = 256;	// block size
-	int i, j, k;
-	int j_inner, k_inner;
-	
 	for(int i = 0; i < N; i++) {
-		for(int j = 0; j < M; j += b) {
-			for(int k = 0; k < K; k += b) {
+		for(int j = 0; j < M; j += BLOCK_SIZE) {
+			for(int k = 0; k < K; k += BLOCK_SIZE) {
 
 				// iterate through the blocks
-				for (j_inner = j; j_inner < MIN(j + b, M); j_inner++) {
-					for (k_inner = k; k_inner < MIN(k + b, K); k_inner++) {
+				for (int j_inner = j; j_inner < MIN(j + BLOCK_SIZE, M); j_inner++) {
+					for (int k_inner = k; k_inner < MIN(k + BLOCK_SIZE, K); k_inner++) {
 						C[i * M + j_inner] += A[i * K + k_inner] * B[k_inner * M + j_inner];
 					}
 				}
@@ -62,36 +69,34 @@ void mm_cb (dtype *C, dtype *A, dtype *B, int N, int K, int M)
 // SIMD-vectorized matrix-matrix multiply
 void mm_sv (dtype *C, dtype *A, dtype *B, int N, int K, int M)
 {
+	double c[2];
 
-	int b = 256;	// block size
-	int i, j, k;
-	int j_inner, k_inner;
-	
+	// transposing the matrix
+	matTran(B,K,M);
+	__m128d Avec, Bvec, Cvec, mult_vec; 
+
 	for(int i = 0; i < N; i++) {
-		for(int j = 0; j < M; j += b) {
-			for(int k = 0; k < K; k += b) {
-
-				__m128d Avec, Bvec, Cvec, mult_vec; 
+		for(int j = 0; j < M; j += BLOCK_SIZE) {
+			for(int k = 0; k < K; k += BLOCK_SIZE) {
 
 				// iterate through the blocks
-				for (j_inner = j; j_inner < MIN(j + b, M); j_inner++) {
-					for (k_inner = k; k_inner < MIN(k + b, K); k_inner += 2) {
+				for (int j_inner = j; j_inner < MIN(j + BLOCK_SIZE, M); j_inner++) {
+					
+					// init mult_vec
+					mult_vec = _mm_setzero_pd();
+					for (int k_inner = k; k_inner < MIN(k + BLOCK_SIZE, K); k_inner+=2) {
+						
+						// load A and B vectors 
+						Avec = _mm_load_pd(A + (i * K + k_inner));
+						Bvec = _mm_load_pd(B + (j_inner * M + k_inner));
 
-						// have this if statement if to make sure that it only does SIMD if it can do so without accessing outside the array
-						// HOWEVER, this did not work
-						if ((i * K + k_inner) < (N*K)-1 && (k_inner * M + j_inner) < (K*M)-1) {
-							Avec = _mm_load_pd(A + (i * K + k_inner));
-							Bvec = _mm_load_pd(B + (k_inner * M + j_inner));
-							Cvec = _mm_mul_pd(Avec,Bvec);
-
-							double c[2];
-							_mm_store_pd(c, Cvec);
-							C[i * M + j_inner] += c[0] + c[1];
-						} 
-						else {
-							C[i * M + j_inner] += A[i * K + k_inner] * B[k_inner * M + j_inner];
-						}
+						// compute
+						mult_vec = _mm_add_pd(_mm_mul_pd(Avec, Bvec), mult_vec);
 					}
+
+					// store
+					_mm_store_pd(c, mult_vec);
+					C[i * M + j_inner] += c[0] + c[1];
 				}
 			}
 		}
