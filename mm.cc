@@ -9,7 +9,7 @@
 #define N_ 4096
 #define K_ 4096
 #define M_ 4096
-#define BLOCK_SIZE 256
+#define BLOCK_SIZE 128
 
 #define MIN(a,b) ( ( a < b) ? a : b )
 
